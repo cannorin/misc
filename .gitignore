@@ -198,4 +198,4 @@ FakesAssemblies/
 bot.xml
 nohup.out
 .env
-.paket
+*paket*

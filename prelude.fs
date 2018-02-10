@@ -23,11 +23,16 @@ THE SOFTWARE.
 module Prelude
 
 open System
-open System.Text.RegularExpressions    
+open System.Text.RegularExpressions
+
+exception UndefinedException of msg: string with
+  override this.Message = this.msg
 
 let inline to_s x = x.ToString()
 
 let inline (?|) opt df = defaultArg opt df
+
+let inline undefined (x: 'a) : 'b = to_s x |> UndefinedException |> raise
 
 let private ccl (fc: ConsoleColor) =
   Console.ForegroundColor <- fc;
@@ -49,6 +54,32 @@ let (|DefaultValue|) dv x =
   match x with
     | Some v -> v
     | None -> dv
+
+let inline (!!) (x: Lazy<'a>) = x.Value
+
+module Lazy =
+  begin
+    let inline run (x: Lazy<'a>) = x.Value
+    
+    let inline bind (f: 'a -> Lazy<'b>) (x: Lazy<'a>) =
+      lazy (!!x |> f) |> run
+
+    let inline map (f: 'a -> 'b) (x: Lazy<'a>) =
+      lazy (!!x |> f)
+
+    let inline flatten (x: Lazy<Lazy<'a>>) = !!(!!x)
+  end
+
+[<Struct>]
+type LazyBuilder =
+  member inline this.Bind(m, f) = Lazy.bind f m
+  member inline this.Return x = lazy x
+  member inline this.ReturnFrom lx = lx
+  member inline this.Zero () = lazy ()
+  member inline this.Combine(a, b) = a
+  member inline this.Delay f = lazy (!!f())
+
+let doLazy = LazyBuilder ()
 
 module List = 
   begin

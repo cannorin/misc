@@ -199,3 +199,17 @@ bot.xml
 nohup.out
 .env
 *paket*
+
+*.fs*
+!bigint.fs
+!commandline.fsx
+!example.fsx
+!import.fsx
+!paket.core.fsx
+!prelude.fs
+!scanf.fsx
+!SIGABRT.fs
+!test-async-rx.fsx
+!typeclass-monad.fsx
+!typeclass-showable.fsx
+!uom.fsx

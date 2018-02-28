@@ -32,7 +32,7 @@ let private ns = "FsxTools"
 type FSP (cfg) as this =
   inherit TypeProviderForNamespaces(cfg)
 
-  let fileSystem = ProvidedTypeDefinition(thisAsm, ns, "FileSystem", None)
+  let fileSystem = ProvidedTypeDefinition(thisAsm, ns, "FileSystem", Some (typeof<string>))
   
   let rec instantiate tyName rootDir showHidden useOrig =
     let toIdentifier s = if useOrig then s else toIdentifier s
@@ -40,7 +40,7 @@ type FSP (cfg) as this =
     ProvidedConstructor([], invokeCode=konst <@@ rootDir @@>) |> ty.AddMember
 
     for file in Directory.GetFiles(rootDir) |> Seq.map FileInfo do
-      let fileTy = ProvidedTypeDefinition(toIdentifier file.Name + "_static", None)
+      let fileTy = ProvidedTypeDefinition(toIdentifier file.Name + "_static", Some(typeof<string>))
       ty.AddMember fileTy
       [
         ProvidedField.Literal("CompileTimeName", typeof<string>, box file.Name);

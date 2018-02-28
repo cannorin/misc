@@ -1,0 +1,17 @@
+RESTRICTION: == net45
+NUGET
+  remote: https://www.nuget.org/api/v2
+    Chessie (0.6)
+      FSharp.Core
+    FSharp.Core (4.3.4)
+    Mono.Cecil (0.10.0-beta7)
+    Newtonsoft.Json (11.0.1)
+    Paket.Core (4.8.8)
+      Chessie (>= 0.6)
+      FSharp.Core
+      Mono.Cecil (>= 0.10.0-beta4)
+      Newtonsoft.Json
+GITHUB
+  remote: fsprojects/FSharp.TypeProviders.StarterPack
+    src/ProvidedTypes.fs (76afcf2c5f3223578371f1578a23ce0db645d05e)
+    src/ProvidedTypes.fsi (76afcf2c5f3223578371f1578a23ce0db645d05e)

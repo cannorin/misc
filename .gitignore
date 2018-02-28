@@ -201,6 +201,8 @@ nohup.out
 *paket*
 
 *.fs*
+*.dll
+*.exe
 !bigint.fs
 !commandline.fsx
 !example.fsx
@@ -213,3 +215,6 @@ nohup.out
 !typeclass-monad.fsx
 !typeclass-showable.fsx
 !uom.fsx
+!paket.dependencies
+!paket.lock
+!FsxTools.fsx

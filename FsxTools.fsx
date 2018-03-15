@@ -28,6 +28,10 @@ let private toIdentifier s =
 let private thisAsm = Assembly.GetExecutingAssembly()
 let private ns = "FsxTools"
 
+let inline private filterHide flag (xs: ^X seq) : ^X seq
+  when ^X: (member Attributes: FileAttributes) =
+  xs |> Seq.filter (fun x -> flag || ((^X: (member Attributes: _) x) &&& FileAttributes.Hidden <> FileAttributes.Hidden))
+
 [<TypeProvider>]
 type FSP (cfg) as this =
   inherit TypeProviderForNamespaces(cfg)
@@ -39,7 +43,7 @@ type FSP (cfg) as this =
     let ty = ProvidedTypeDefinition(thisAsm, ns, tyName, None)
     ProvidedConstructor([], invokeCode=konst <@@ rootDir @@>) |> ty.AddMember
 
-    for file in Directory.GetFiles(rootDir) |> Seq.map FileInfo do
+    for file in Directory.GetFiles(rootDir) |> Seq.map FileInfo |> filterHide showHidden do
       let fileTy = ProvidedTypeDefinition(toIdentifier file.Name + "_static", Some(typeof<string>))
       ty.AddMember fileTy
       [
@@ -65,7 +69,7 @@ type FSP (cfg) as this =
       with _ -> ()
       ProvidedProperty(toIdentifier file.Name, fileTy, getterCode=konst <@@ fn @@>) |> ty.AddMember
 
-    for subdir in Directory.GetDirectories(rootDir) |> Seq.map DirectoryInfo do
+    for subdir in Directory.GetDirectories(rootDir) |> Seq.map DirectoryInfo |> filterHide showHidden do
       ty.AddMembersDelayed(fun () ->
           let dirTy = instantiate (toIdentifier subdir.Name + "_static") subdir.FullName showHidden useOrig
           let fn = subdir.FullName

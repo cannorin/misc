@@ -159,7 +159,7 @@ type LazyBuilder =
   member inline this.Return x = lazy x
   member inline this.ReturnFrom lx = lx
   member inline this.Zero () = lazy ()
-  member inline this.Combine(a, b) = a
+  member inline this.Combine(a, _) = a
   member inline this.Delay f = lazy (!!f())
 
 let doLazy = LazyBuilder ()

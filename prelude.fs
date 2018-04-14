@@ -1,4 +1,4 @@
-(*
+﻿(*
 The X11 License
 prelude.fs - my prelude
 Copyright(c) 2018 cannorin
@@ -56,6 +56,14 @@ let (|DefaultValue|) dv x =
     | Some v -> v
     | None -> dv
 
+module Flag =
+  let inline combine (xs: ^flag list) : ^flag
+    when ^flag: enum<int> =
+      xs |> List.fold (|||) (Unchecked.defaultof< ^flag >)
+
+  let inline is (x: ^flag) (flags: ^flag) : bool
+    when ^flag: enum<int> =
+      (x &&& flags) = x 
 
 module Number =
   open System.Globalization
@@ -80,9 +88,9 @@ module String =
   open System.Text
   open System.Globalization
 
-  let inline startsWith s (str: string) = str.StartsWith s
+  let inline startsWith (s: ^a) (str: ^String) : bool = (^String: (member StartsWith: ^a -> bool) str, s)
 
-  let inline endsWith s (str: string) = str.EndsWith s
+  let inline endsWith (s: ^a) (str: ^String) : bool = (^String: (member EndsWith: ^a -> bool) str, s)
 
   let inline contains s (str: string) = str.Contains s
 
@@ -219,7 +227,7 @@ module PerformanceMeasurement =
           yield stopWatch.Elapsed.TotalMilliseconds
       }
     in
-    printfn "%A: %gms" task (Seq.average times);
+    printfn "%A: %fms" task (Seq.average times);
     task ()
 
 module Async =
@@ -239,3 +247,72 @@ module Async =
         | :? TimeoutException -> return None
     }
 
+module Shell =
+  open System.Diagnostics
+
+  let inline eval cmd args =
+    let p = new Process()
+    p.EnableRaisingEvents <- false;
+    p.StartInfo.UseShellExecute <- false;
+    p.StartInfo.FileName <- cmd;
+    p.StartInfo.Arguments <- args |> String.concat " ";
+    p.StartInfo.RedirectStandardInput <- true;
+    p.StartInfo.RedirectStandardOutput <- true;
+    p.Start() |> ignore;
+    p.WaitForExit();
+    p.StandardOutput.ReadToEnd()
+
+  let inline evalAsync cmd args =
+    async {
+      let p = new Process()
+      do p.EnableRaisingEvents <- false;
+      do p.StartInfo.UseShellExecute <- false;
+      do p.StartInfo.FileName <- cmd;
+      do p.StartInfo.Arguments <- args |> String.concat " ";
+      do p.StartInfo.RedirectStandardInput <- true;
+      do p.StartInfo.RedirectStandardOutput <- true;
+      do p.Start() |> ignore;
+      do p.WaitForExit();
+      return p.StandardOutput.ReadToEnd()
+    }
+
+  let inline run cmd args =
+    let p = new Process()
+    p.EnableRaisingEvents <- false;
+    p.StartInfo.UseShellExecute <- false;
+    p.StartInfo.FileName <- cmd;
+    p.StartInfo.Arguments <- args |> String.concat " ";
+    p.Start() |> ignore;
+    p.WaitForExit(); 
+
+  let inline runAsync cmd args =
+    async {
+      let p = new Process()
+      do p.EnableRaisingEvents <- false;
+      do p.StartInfo.UseShellExecute <- false;
+      do p.StartInfo.FileName <- cmd;
+      do p.StartInfo.Arguments <- args |> String.concat " ";
+      do p.Start() |> ignore;
+      do p.WaitForExit(); 
+      return ()
+    }
+  
+  let inline envVar name =
+    match Environment.GetEnvironmentVariable name with
+      | x when String.IsNullOrEmpty x ->
+        eval "sh" ["-c"; sprintf "'echo %s'" name] |> String.replace Environment.NewLine ""
+      | x -> x
+
+type TypeWrapper<'T> = struct end
+type ty<'T> = TypeWrapper<'T>
+let inline ty<'T> = Unchecked.defaultof<ty<'T>>
+
+type MeasureWrapper< [<Measure>] 'm > = struct end
+type measure< [<Measure>] 'm > = MeasureWrapper<'m>
+let inline measure< [<Measure>] 'm > = Unchecked.defaultof<measure<'m>>
+
+let inline intWithMeasure (_: measure<'m>) (i: ^i) : int<'m> =
+  (int i) * LanguagePrimitives.Int32WithMeasure<'m> 1
+
+let inline floatWithMeasure (_: measure<'m>) (i: ^i) : float<'m> =
+  (float i) * LanguagePrimitives.FloatWithMeasure<'m> 1.0

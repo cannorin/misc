@@ -54,6 +54,14 @@ let (|DefaultValue|) dv x =
     | Some v -> v
     | None -> dv
 
+module Flag =
+  let inline combine (xs: ^flag list) : ^flag
+    when ^flag: enum<int> =
+      xs |> List.fold (|||) (Unchecked.defaultof< ^flag >)
+  let inline is (x: ^flag) (flags: ^flag) : bool
+    when ^flag: enum<int> =
+      (x &&& flags) = x 
+
 module Number =
   open System.Globalization
 

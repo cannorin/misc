@@ -27,8 +27,6 @@ open System.Text.RegularExpressions
 
 let inline to_s x = x.ToString()
 
-let inline hashof x = x.GetHashCode()
-
 let inline (?|) opt df = defaultArg opt df
 
 let inline undefined (x: 'a) : 'b = NotImplementedException(to_s x) |> raise
@@ -56,15 +54,6 @@ let (|DefaultValue|) dv x =
     | Some v -> v
     | None -> dv
 
-module Flag =
-  let inline combine (xs: ^flag list) : ^flag
-    when ^flag: enum<int> =
-      xs |> List.fold (|||) (Unchecked.defaultof< ^flag >)
-
-  let inline is (x: ^flag) (flags: ^flag) : bool
-    when ^flag: enum<int> =
-      (x &&& flags) = x 
-
 module Number =
   open System.Globalization
 
@@ -84,6 +73,22 @@ module Number =
     else
       None
 
+[<AutoOpen>]
+module Nat =
+  type nat = uint32
+
+  let inline S i = i + 1u
+  [<Literal>]
+  let Z = 0u
+  
+  let (|S|Z|) i = if i = 0u then Z else S (i-1u)
+
+let inline succ (n: ^number) =
+  n + LanguagePrimitives.GenericOne< ^number >
+
+let inline pred (n: ^number) =
+  n - LanguagePrimitives.GenericOne< ^number >
+
 module String =
   open System.Text
   open System.Globalization
@@ -92,7 +97,7 @@ module String =
 
   let inline endsWith (s: ^a) (str: ^String) : bool = (^String: (member EndsWith: ^a -> bool) str, s)
 
-  let inline contains s (str: string) = str.Contains s
+  let inline contains (s: ^a) (str: ^String) : bool = (^String: (member IndexOf: ^a -> int) str, s) <> -1
 
   let inline findIndex (q: ^T) (str: ^String) = 
     (^String: (member IndexOf: ^T -> int) (str, q))
@@ -146,7 +151,39 @@ module String =
 
   let inline removeEmptyEntries (sp: string array) = sp |> Array.filter (String.IsNullOrEmpty >> not)
 
-  let inline toCharArray (s: string) = s.ToCharArray()
+  let inline toChars (s: string) = s.ToCharArray()
+
+  let inline ofChars (cs: char seq) = new String(cs |> Seq.toArray)
+
+  let inline nth i (str: string) = str.[i]
+
+  let inline rev (str: string) = 
+    new String(str.ToCharArray() |> Array.rev)
+
+  let inline private whileBase pred act str =
+    if String.IsNullOrEmpty str then
+      ""
+    else
+      let mutable i = 0
+      while i < String.length str && str |> nth i |> pred do i <- i + 1 done
+      if i = 0 then ""
+      else str |> act i
+
+  let inline take i str =
+    if i = 0 then ""
+    else if i >= String.length str then str
+    else removeAfter i str
+
+  let inline skip i str =
+    if i = 0 then str
+    else if i >= String.length str then ""
+    else substringAfter i str
+
+  let inline takeWhile predicate (str: string) =
+    whileBase predicate take str
+
+  let inline skipWhile predicate (str: string) =
+    whileBase predicate skip str
 
 let inline (!!) (x: Lazy<'a>) = x.Value
 
@@ -196,6 +233,11 @@ module Result =
       | Ok x -> Choice1Of2 x
       | Error e -> Choice2Of2 e
 
+  let inline ofOption opt =
+    match opt with
+      | Some x -> Ok x
+      | None -> Error ()
+
   let inline ofChoice cic =
     match cic with
       | Choice1Of2 x -> Ok x
@@ -227,7 +269,7 @@ module PerformanceMeasurement =
           yield stopWatch.Elapsed.TotalMilliseconds
       }
     in
-    printfn "%A: %fms" task (Seq.average times);
+    printfn "%A: %gms" task (Seq.average times);
     task ()
 
 module Async =
@@ -276,6 +318,12 @@ module Shell =
       return p.StandardOutput.ReadToEnd()
     }
 
+  let inline pipe cmd args stdin =
+    eval "sh" ["-c"; sprintf "'echo \"%s\" | %s %s'" stdin cmd (args |> String.concat " ")]
+
+  let inline pipeAsync cmd args stdin =
+    evalAsync "sh" ["-c"; sprintf "'echo \"%s\" | %s %s'" stdin cmd (args |> String.concat " ")]
+
   let inline run cmd args =
     let p = new Process()
     p.EnableRaisingEvents <- false;
@@ -312,7 +360,23 @@ type measure< [<Measure>] 'm > = MeasureWrapper<'m>
 let inline measure< [<Measure>] 'm > = Unchecked.defaultof<measure<'m>>
 
 let inline intWithMeasure (_: measure<'m>) (i: ^i) : int<'m> =
-  (int i) * LanguagePrimitives.Int32WithMeasure<'m> 1
+  LanguagePrimitives.Int32WithMeasure<'m> (int i)
 
 let inline floatWithMeasure (_: measure<'m>) (i: ^i) : float<'m> =
-  (float i) * LanguagePrimitives.FloatWithMeasure<'m> 1.0
+  LanguagePrimitives.FloatWithMeasure<'m> (float i)
+
+module Path =
+  open System.IO
+  let makeRelativeTo parentDir file =
+    let filePath = new Uri(file)
+    let path =
+      new Uri (
+        if (parentDir |> String.endsWith (to_s Path.DirectorySeparatorChar) |> not) then
+          sprintf "%s%c" parentDir Path.DirectorySeparatorChar
+        else
+          parentDir
+      )
+    Uri.UnescapeDataString(path.MakeRelativeUri(filePath) |> to_s |> String.replace '/' Path.DirectorySeparatorChar)
+
+ 
+

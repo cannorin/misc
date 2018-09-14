@@ -1,4 +1,4 @@
-﻿(*
+(*
 The X11 License
 prelude.fs - my prelude
 Copyright(c) 2018 cannorin
@@ -286,6 +286,8 @@ module Async =
   open Microsoft.FSharp.Control
 
   let inline run x = Async.RunSynchronously x
+  let inline returnValue x = async { return x }
+  let inline bind f m = async { let! x = m in return! f x }
 
   let withTimeout (timeout : TimeSpan) a =
     async {

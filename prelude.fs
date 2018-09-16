@@ -20,7 +20,11 @@ THE SOFTWARE.
 *)
 
 [<AutoOpen>]
+#if PRELUDE_EXPOSE
+module Prelude
+#else
 module internal Prelude
+#endif
 
 open System
 open System.Text.RegularExpressions
@@ -80,6 +84,13 @@ module Number =
       Some ret
     else
       None
+
+[<AutoOpen>]
+module Kvp =
+  open System.Collections.Generic
+  type kvp<'a, 'b> = KeyValuePair<'a, 'b>
+  let inline KVP (a, b) = kvp(a, b)
+  let (|KVP|) (x: kvp<_, _>) = (x.Key, x.Value)
 
 [<AutoOpen>]
 module Nat =
@@ -387,6 +398,3 @@ module Path =
           parentDir
       )
     Uri.UnescapeDataString(path.MakeRelativeUri(filePath) |> to_s |> String.replace '/' Path.DirectorySeparatorChar)
-
- 
-

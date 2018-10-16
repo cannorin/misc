@@ -199,6 +199,7 @@ bot.xml
 nohup.out
 .env
 *paket*
+.ionide/
 
 *.fs*
 *.dll
@@ -218,3 +219,8 @@ nohup.out
 !paket.dependencies
 !paket.lock
 !FsxTools.fsx
+!ionide-projectreference-fail-repro
+!ionide-projectreference-fail-repro/hello.fsproj
+!ionide-projectreference-fail-repro/Program.fs
+!ionide-projectreference-fail-repro/tests/Tests.fs
+!ionide-projectreference-fail-repro/tests/tests.fsproj

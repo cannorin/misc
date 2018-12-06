@@ -56,6 +56,21 @@ module AdditionalToplevelOperators =
     n - LanguagePrimitives.GenericOne< ^number >
 
 [<AutoOpen>]
+module Interop =
+  module Coalesce =  
+    let inline option (b: 'a Lazy) (a: 'a option) = 
+      match a with 
+        | Some a -> a 
+        | _ -> b.Value
+    let inline nullable (b: 'a Lazy) (a: 'a Nullable) = 
+      if a.HasValue then a.Value
+      else b.Value
+    let inline obj (b: 'a Lazy) (a: 'a when 'a:null) = 
+      match a with 
+        | null -> b.Value 
+        | _ -> a
+
+[<AutoOpen>]
 module AdditionalActivePatterns =
   open System.Text.RegularExpressions
 
@@ -245,6 +260,24 @@ module BclExtensions =
       let i = ref 0
       xs |> Seq.groupBy (fun x -> (if x = separator then incr i); !i)
          |> Seq.map snd
+
+  open System.Collections.Generic
+  type dict<'a, 'b> = IDictionary<'a, 'b>
+  module Dict =
+    let inline empty<'a, 'b when 'a: comparison> = Map.empty :> dict<'a, 'b>
+    let inline count (xs: #dict<_, _>) = xs.Count
+    let inline exists pred (xs: #dict<_, _>) =
+      xs :> seq<_> |> Seq.exists (function KVP(k, v) -> pred k v)
+    let inline containsKey x (xs: #dict<_, _>) = xs.ContainsKey x
+    let inline find key (xs: #dict<_, _>) = xs.[key]
+    let inline tryFind key (xs: #dict<_, _>) =
+      if xs.ContainsKey key then xs.[key] |> Some else None
+    let inline toMap (xs: #dict<_, _>) =
+      let mutable m = Map.empty
+      for KVP(k, v) in xs do
+        m <- m |> Map.add k v
+      m
+    let inline toSeq (xs: #dict<_, _>) = xs :> seq<kvp<_, _>>
 
   module Tuple =
     let inline map2 f g (x, y) = (f x, g y)
@@ -446,3 +479,4 @@ let inline intWithMeasure (_: measure<'m>) (i: ^i) : int<'m> =
 
 let inline floatWithMeasure (_: measure<'m>) (i: ^i) : float<'m> =
   LanguagePrimitives.FloatWithMeasure<'m> (float i)
+

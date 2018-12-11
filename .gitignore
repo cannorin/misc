@@ -226,3 +226,4 @@ nohup.out
 !ionide-projectreference-fail-repro/tests/tests.fsproj
 !functor.fs
 !coroutine.fs
+!FParsecUtils.fs

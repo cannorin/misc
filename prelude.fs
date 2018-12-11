@@ -1,5 +1,5 @@
 (*
-The X11 License
+The MIT License
 prelude.fs - my prelude
 Copyright(c) 2018 cannorin
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -183,6 +183,10 @@ module BclExtensions =
 
     let inline trim (str: string) = str.Trim()
 
+    let inline trimStart (str: string) = str.TrimStart()
+
+    let inline trimEnd (str: string) = str.TrimEnd()
+
     let inline replace (before: ^T) (after: ^T) (s: ^String) =
       (^String: (member Replace: ^T -> ^T -> ^String) (s, before, after))
 
@@ -228,6 +232,8 @@ module BclExtensions =
     let inline skipWhile predicate (str: string) =
       whileBase predicate skip str
 
+    let inline fromChars (chars: #seq<char>) = System.String.Concat chars
+
   let inline (!!) (x: Lazy<'a>) = x.Value
 
   module Lazy =
@@ -255,11 +261,21 @@ module BclExtensions =
           | h :: t -> (x :: h) :: t
       ) xs []
 
+    let inline foldi folder state xs =
+      List.fold (fun (i, state) x -> (i + 1, folder i state x)) (0, state) xs |> snd
+
   module Seq =
     let inline split separator xs =
       let i = ref 0
       xs |> Seq.groupBy (fun x -> (if x = separator then incr i); !i)
          |> Seq.map snd
+    
+    let inline foldi folder state xs =
+      Seq.fold (fun (i, state) x -> (i + 1, folder i state x)) (0, state) xs |> snd
+
+  module Array =
+    let inline foldi folder state xs =
+      Array.fold (fun (i, state) x -> (i + 1, folder i state x)) (0, state) xs |> snd
 
   open System.Collections.Generic
   type dict<'a, 'b> = IDictionary<'a, 'b>
@@ -352,6 +368,22 @@ module BclExtensions =
             parentDir
         )
       Uri.UnescapeDataString(path.MakeRelativeUri(filePath) |> to_s |> String.replace '/' Path.DirectorySeparatorChar)
+
+module Convert =
+  let inline hexsToInt (hexs: #seq<char>) =
+    let len = Seq.length hexs - 1
+    hexs |> Seq.foldi (fun i sum x ->
+      let n =
+        let n = int x - int '0'
+        if n < 10 then n
+        else if n < 23 then n - 7
+        else n - 44
+      sum + n * pown 16 (len - i)) 0
+
+  let inline digitsToInt (digits: #seq<char>) =
+    let len = Seq.length digits - 1
+    digits |> Seq.foldi (fun i sum x ->
+      sum + (int x - int '0') * pown 10 (len - i)) 0
 
 [<AutoOpen>]
 module ComputationExpressions =

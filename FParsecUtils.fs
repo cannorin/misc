@@ -19,11 +19,38 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 *)
 
-
 /// Useful extensions for FParsec
 module FParsecUtils
 open System
 open FParsec
+
+/// Parsec computation expression builder with backtrack
+[<Struct>]
+type BacktrackParsecBuilder =
+  member inline __.Bind (m, f) = m >>=? f
+  member inline __.Return x = preturn x
+  member inline __.ReturnFrom x = x
+  member inline __.Yield x = preturn x
+  member inline __.YieldFrom x = x
+  member inline __.Combine (x, y) = attempt x <|> y
+  member inline __.For (xs, f) = xs |> Seq.map (f >> attempt) |> choice
+  member inline __.Zero() = pzero
+
+/// Parsec computation expression builder
+[<Struct>]
+type ParsecBuilder =
+  member inline __.Bind (m, f) = m >>= f
+  member inline __.Return x = preturn x
+  member inline __.ReturnFrom x = x
+  member inline __.Yield x = preturn x
+  member inline __.YieldFrom x = x
+  member inline __.Combine (x, y) = x <|> y
+  member inline __.For (xs, f) = xs |> Seq.map f |> choice
+  member inline __.Zero() = pzero
+  member inline __.backtrack = BacktrackParsecBuilder()
+
+/// Parsec computation expression
+let parsec = ParsecBuilder()
 
 /// Variant of `<|>` but accept different types of parsers and returns `Choice<'a, 'b>`.
 let inline (<||>) a b = (a |>> Choice1Of2) <|> (b |>> Choice2Of2)
@@ -112,6 +139,7 @@ let inline passertL (cond: 'a -> Result<unit, string>) (parser: Parser<'a, _>) =
 let inline passert (cond: 'a -> bool) (parser: Parser<'a, _>) =
   parser >>= fun x ->
     if cond x then preturn x else fun _ -> Reply(FatalError, NoErrorMessages)
+
 
 /// ISO8601-compliant Date/Time Parser.
 /// See https://tools.ietf.org/html/iso8601#section-5.6 for details.

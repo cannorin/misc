@@ -82,7 +82,7 @@ let inline pdictL (d: #seq<_*_>) descr =
   dict d |> Seq.map (fun kv -> pstring kv.Key >>% kv.Value)
          |> choiceL <| descr
 
-/// String with escaped characters. Should be used along with `between.`
+/// String with escaped characters. Should be used along with `between`.
 let inline escapedString (escapedChars: #seq<char>) =
   let controls =
     pdictL [
@@ -109,7 +109,7 @@ let inline recursive (definition: (Parser<'a, _> -> Parser<'a, _>)) =
   p
 
 /// Succeeds when the condition `cond` returns `Result.Ok ()`.
-/// Fails with a `messagError msg` when it returns `Result.Error msg`.
+/// Fails with a `messageError msg` when it returns `Result.Error msg`.
 /// THIS WILL DECREASE THE PERFORMANCE
 let inline pwhenL (cond: 'a -> Result<unit, string>) (parser: Parser<'a, _>) =
   parser >>= fun x ->

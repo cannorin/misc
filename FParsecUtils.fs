@@ -98,9 +98,9 @@ let inline escapedString (escapedChars: #seq<char>) =
     pdict d
   
   let escape = choice [controls; unicode16bit; unicode32bit; customEscapedChars]
-  let nonEscape = noneOf (sprintf "\\\b\t\n\u000B\u000C\r%s" (String.fromChars escapedChars))
+  let nonEscape = noneOf (sprintf "\\\b\t\n\u000B\u000C\r%s" (String.ofChars escapedChars))
   let character = nonEscape <|> escape
-  many character |>> String.fromChars
+  many character |>> String.ofChars
 
 /// Defines a recursive rule.
 let inline recursive (definition: (Parser<'a, _> -> Parser<'a, _>)) =

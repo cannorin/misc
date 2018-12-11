@@ -163,13 +163,11 @@ module BclExtensions =
     let inline normalize (nfo: NormalizationForm option) (str: string) = 
       match nfo with Some nf -> str.Normalize nf | None -> str.Normalize()
 
-    let inline toLower (cio: CultureInfo option) (str: string) =
-      match cio with Some ci -> str.ToLower ci | None -> str.ToLowerInvariant()
+    let inline toLower (ci: CultureInfo) (str: string) = str.ToLower ci
 
     let inline toLowerInvariant (str: string) = str.ToLowerInvariant()
 
-    let inline toUpper (cio: CultureInfo option) (str: string) =
-      match cio with Some ci -> str.ToUpper ci | None -> str.ToUpperInvariant()
+    let inline toUpper (ci: CultureInfo) (str: string) = str.ToUpper ci
 
     let inline toUpperInvariant (str: string) = str.ToUpperInvariant()
 
@@ -187,6 +185,18 @@ module BclExtensions =
 
     let inline trimEnd (str: string) = str.TrimEnd()
 
+    let inline trimBy (trimChar: char) (str: string) = str.Trim(trimChar)
+    
+    let inline trimBySeq (trimChars: char seq) (str: string) = str.Trim(trimChars |> Seq.toArray)
+
+    let inline trimStartBy (trimChar: char) (str: string) = str.TrimStart(trimChar)
+    
+    let inline trimStartBySeq (trimChars: char seq) (str: string) = str.TrimStart(trimChars |> Seq.toArray)
+
+    let inline trimEndBy (trimChar: char) (str: string) = str.TrimEnd(trimChar)
+    
+    let inline trimEndBySeq (trimChars: char seq) (str: string) = str.TrimEnd(trimChars |> Seq.toArray)
+
     let inline replace (before: ^T) (after: ^T) (s: ^String) =
       (^String: (member Replace: ^T -> ^T -> ^String) (s, before, after))
 
@@ -200,7 +210,7 @@ module BclExtensions =
 
     let inline toChars (s: string) = s.ToCharArray()
 
-    let inline ofChars (cs: char seq) = new String(cs |> Seq.toArray)
+    let inline ofChars (chars: #seq<char>) = System.String.Concat chars
 
     let inline nth i (str: string) = str.[i]
 
@@ -231,8 +241,6 @@ module BclExtensions =
 
     let inline skipWhile predicate (str: string) =
       whileBase predicate skip str
-
-    let inline fromChars (chars: #seq<char>) = System.String.Concat chars
 
   let inline (!!) (x: Lazy<'a>) = x.Value
 
@@ -294,6 +302,9 @@ module BclExtensions =
         m <- m |> Map.add k v
       m
     let inline toSeq (xs: #dict<_, _>) = xs :> seq<kvp<_, _>>
+  
+  type IDictionary<'a, 'b> with
+    member this.tryget(key) = Dict.tryFind key this
 
   module Tuple =
     let inline map2 f g (x, y) = (f x, g y)

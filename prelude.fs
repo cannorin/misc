@@ -100,9 +100,9 @@ module AdditionalActivePatterns =
     let (|S|Z|) i = if i = 0u then Z else S (i-1u)
 
 module Flag =
-  let inline combine (xs: ^flag list) : ^flag
+  let inline combine (xs: ^flag seq) : ^flag
     when ^flag: enum<int> =
-      xs |> List.fold (|||) (Unchecked.defaultof< ^flag >)
+      xs |> Seq.fold (|||) (Unchecked.defaultof< ^flag >)
   let inline contains (x: ^flag) (flags: ^flag) : bool
     when ^flag: enum<int> =
       (x &&& flags) = x 

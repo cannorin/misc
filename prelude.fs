@@ -279,9 +279,9 @@ module BclExtensions =
   type array3d<'t> = 't[,,]    
 
   module List =
-    let inline split separator xs =
+    let inline splitWith predicate xs =
       List.foldBack (fun x state ->
-        if x = separator then
+        if predicate x then
           [] :: state
         else
           match state with
@@ -289,14 +289,18 @@ module BclExtensions =
           | h :: t -> (x :: h) :: t
       ) xs []
 
+    let inline split separator xs = splitWith ((=) separator) xs
+
     let inline foldi folder state xs =
       List.fold (fun (i, state) x -> (i + 1, folder i state x)) (0, state) xs |> snd
 
   module Seq =
-    let inline split separator xs =
+    let inline splitWith predicate xs =
       let i = ref 0
-      xs |> Seq.groupBy (fun x -> (if x = separator then incr i); !i)
+      xs |> Seq.groupBy (fun x -> (if predicate x then incr i); !i)
          |> Seq.map snd
+    
+    let inline split separator xs = splitWith ((=) separator) xs
     
     let inline foldi folder state xs =
       Seq.fold (fun (i, state) x -> (i + 1, folder i state x)) (0, state) xs |> snd

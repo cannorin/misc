@@ -57,6 +57,26 @@ module AdditionalToplevelOperators =
 
 [<AutoOpen>]
 module Interop =
+  module Func =
+    let inline ofFSharp0 f = new Func<_>(f)
+    let inline ofFSharp1 f = new Func<_, _>(f)
+    let inline ofFSharp2 f = new Func<_, _, _>(f)
+    let inline ofFSharp3 f = new Func<_, _, _, _>(f)
+    let inline toFSharp0 (f: Func<_>) () = f.Invoke()
+    let inline toFSharp1 (f: Func<_, _>) x = f.Invoke(x)
+    let inline toFSharp2 (f: Func<_, _, _>) x y = f.Invoke(x, y)
+    let inline toFSharp3 (f: Func<_, _, _, _>) x y z = f.Invoke(x, y, z)
+
+  module Action =
+    let inline ofFSharp0 a = new Action(a)
+    let inline ofFSharp1 a = new Action<_>(a)
+    let inline ofFSharp2 a = new Action<_, _>(a)
+    let inline ofFSharp3 a = new Action<_, _, _>(a)
+    let inline toFSharp0 (f: Action) () = f.Invoke()
+    let inline toFSharp1 (f: Action<_>) x = f.Invoke(x)
+    let inline toFSharp2 (f: Action<_, _>) x y = f.Invoke(x, y)
+    let inline toFSharp3 (f: Action<_, _, _>) x y z = f.Invoke(x, y, z)
+
   module Coalesce =  
     let inline option (b: 'a Lazy) (a: 'a option) = 
       match a with 
@@ -285,10 +305,39 @@ module BclExtensions =
     let inline foldi folder state xs =
       Array.fold (fun (i, state) x -> (i + 1, folder i state x)) (0, state) xs |> snd
 
+  module Map =
+    open FSharp.Collections
+    let inline choose c m =
+      m |> Map.fold (
+        fun newMap k v ->
+          match c k v with
+            | Some x -> newMap |> Map.add k x
+            | None   -> newMap
+      ) Map.empty
+
   open System.Collections.Generic
   type dict<'a, 'b> = IDictionary<'a, 'b>
   module Dict =
     let inline empty<'a, 'b when 'a: comparison> = Map.empty :> dict<'a, 'b>
+    let inline map f (d: #dict<_, _>) =
+      dict <| seq {
+        for KVP(k, v) in d do
+          yield k, f k v
+      }
+    let inline filter p (d: #dict<_, _>) =
+      dict <| seq {
+        for KVP(k, v) in d do
+          if p k v then yield k,v
+      }
+    let inline choose c (d: #dict<_, _>) =
+      dict <| seq {
+        for KVP(k, v) in d do
+          match c k v with
+            | Some x -> yield k, x
+            | None -> ()
+      }
+    let inline fold f init (d: #dict<_, _>) =
+      Seq.fold (fun state (KVP(k, v)) -> f state k v) init d
     let inline count (xs: #dict<_, _>) = xs.Count
     let inline exists pred (xs: #dict<_, _>) =
       xs :> seq<_> |> Seq.exists (function KVP(k, v) -> pred k v)
@@ -301,6 +350,7 @@ module BclExtensions =
       for KVP(k, v) in xs do
         m <- m |> Map.add k v
       m
+    let inline toMutable (xs: #dict<'a, 'b>) = new Dictionary<'a, 'b>(xs :> IDictionary<_, _>)
     let inline toSeq (xs: #dict<_, _>) = xs :> seq<kvp<_, _>>
   
   type IDictionary<'a, 'b> with

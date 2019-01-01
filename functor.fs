@@ -1,6 +1,4 @@
 module FunctorTest
-open System
-open System.Collections.Generic
 
 // 型変数を値変数として受け渡すためのダミー型
 type typrm<'t> = struct end
@@ -10,21 +8,22 @@ let inline typrm<'t> : typrm<'t> = Unchecked.defaultof<typrm<'t>>
 let inline private compareBy (_: typrm< ^OrderedType >) a b =
   (^OrderedType: (static member Compare: _ * _ -> int) a,b)
 
-// F# の組み込みの比較機構を使うためのラッパー (任意の型に使える)
-type DefaultComparison = DefaultComparison of unit with
-  static member inline Compare (x: 't, y: 't) = compare x y
+// F# の組み込みの比較機構を使うための実装 (任意の型に使える)
+type DefaultComparison =
+  static member inline Compare (x: 't, y: 't) : int = compare x y
 
 module Set =
   // Make も型なので入れ子にできないため外に出す
-  type t<'elt, 'OrderedType> =
+  type t<'elt, 'ord> =
     | Empty
-    | Node of t<'elt, 'OrderedType> * 'elt * t<'elt, 'OrderedType> * int
+    | Node of t<'elt, 'ord> * 'elt * t<'elt, 'ord> * int
 
-  type Make<'ord> = SetModule of unit with
+  type Make<'ord> =
     static member inline singleton x : t<_, 'ord> = Node (Empty, x, Empty, 1)
     
     // メンバ変数は型変数を取れない
-    static member inline empty () : t<_, 'ord> = Empty
+    // static member inline empty<'a, 'ord> : t<'a, 'ord> = Empty // <- error!
+    static member inline empty() : t<_, 'ord> = Empty
 
     static member inline height x = match x with Empty -> 0 | Node (_, _, _, h) -> h
 
@@ -33,6 +32,10 @@ module Set =
       let hr = Make<_>.height r
       Node (l, v, r, (if hl >= hr then hl + 1 else hr + 1))
 
+    // 'ord 型で書かないのは, そうすると
+    // type Make<'ord, 't when 'ord: (static member Compare: 't * 't -> int)>
+    // と定義しないといけなくなってしまい Set.Make<_> が冗長になるため.
+    // とりあえず 'ord 型は任意のものを許しておいて, bal や add を使う時 Compare の実装を要求する
     static member inline bal (l: t<'elt, ^OrderedType>) (v: 'elt) (r: t<'elt, ^OrderedType>) =
       let inline height x = Make<_>.height x
       let inline create l v r = Make<_>.create l v r
@@ -106,8 +109,8 @@ let aSetDefault =
 aSetDefault |> printfn "aSetDefault: %A"
 
 // だがあえて自分で実装を与えてみる
-type CustomAComparison = CustomAComparison with
-  static member Compare (a, b) =
+type CustomAComparison =
+  static member inline Compare (a: A, b: A) : int =
     match a, b with
       | A1 i1, A1 i2 -> compare i1 i2
       | A2 s1, A2 s2 -> compare s1 s2

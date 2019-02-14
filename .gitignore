@@ -227,3 +227,5 @@ nohup.out
 !functor.fs
 !coroutine.fs
 !FParsecUtils.fs
+!call_performance.fs
+!compexp.fsx

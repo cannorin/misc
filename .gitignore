@@ -229,3 +229,4 @@ nohup.out
 !FParsecUtils.fs
 !call_performance.fs
 !compexp.fsx
+!SpanUtils.fs

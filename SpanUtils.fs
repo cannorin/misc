@@ -1,101 +1,119 @@
-module SpanUtils
+(*
+The MIT License
+FSharp.Span.Utils - helper modules for Span<'T>/ReadOnlySpan<'T>
+Copyright(c) 2019 cannorin
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*)
+
+module FSharp.Span.Utils
 
 open System
 open System.Collections.Generic
 open FSharp.NativeInterop
 
 #nowarn "9"
-type span<'a> = Span<'a>
-type readonlyspan<'a> = ReadOnlySpan<'a>
+type 'a span = Span<'a>
+type 'a readonlyspan = ReadOnlySpan<'a>
+type 'a memory = Memory<'a>
+type 'a readonlymemory = ReadOnlyMemory<'a>
 type stringspan = readonlyspan<char>
 
-module SafeLowlevelOperators =
-  open System.Runtime.InteropServices
-  let inline malloc<'a> length =
-    let xs = Array.zeroCreate length
-    span<'a>(xs)
-  let inline stackalloc<'a when 'a: unmanaged> length =
+module SafeLowLevelOperators =
+  let inline stackalloc<'a when 'a: unmanaged> length : 'a span =
     let mem = NativePtr.stackalloc<'a> length
     span<'a>(mem |> NativePtr.toVoidPtr, length)
-  let inline nativealloc<'a when 'a: unmanaged> length =
-    let mem = Marshal.AllocCoTaskMem(Marshal.SizeOf<'a>() * length)
-    span<'a>(mem.ToPointer(), length), fun () -> Marshal.FreeCoTaskMem(mem)
 
 module Span =
   let inline ofArray (xs: _[]) = span(xs)
-  let inline ofPtr (p: nativeptr<'a>, size) =
+  let inline ofPtr (p: 'a nativeptr, size) =
     span<'a>(p |> NativePtr.toVoidPtr, size)
-  let inline ofMemory (mem: Memory<'a>) = mem.Span
-  let inline toArray (s: span<_>) = s.ToArray()
+  let inline ofMemory (mem: _ memory) : _ span = mem.Span
+  let inline toArray (s: _ span) = s.ToArray()
 
-  let inline isEmpty (s: span<_>) = s.IsEmpty
-  let inline length (s: span<_>) = s.Length
-  let inline item i (s: span<_>) = s.[i]
-  let inline rev (s: span<_>) = s.Reverse()
-  let inline take (i: int) (s: span<_>) = s.Slice(0, i-1)
-  let inline skip (i: int) (s: span<_>) = s.Slice(i)
-  let inline findIndex (x: 'a) (s: span<'a>) = MemoryExtensions.IndexOf(s, x)
-  let inline findIndexOfSpan (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.IndexOf(s, xs)
-  let inline findIndexOfAnyOf2 (x1: 'a) (x2: 'a) (s: span<'a>) = MemoryExtensions.IndexOfAny(s, x1, x2)
-  let inline findIndexOfAnyOf3 (x1: 'a) (x2: 'a) (x3: 'a) (s: span<'a>) = MemoryExtensions.IndexOfAny(s, x1, x2, x3)
-  let inline findIndexOfAnyOf (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.IndexOfAny(s, xs)
-  let inline findLastIndex (x: 'a) (s: span<'a>) = MemoryExtensions.LastIndexOf(s, x)
-  let inline findLastIndexOfSpan (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.LastIndexOf(s, xs)
-  let inline findLastIndexOfAnyOf2 (x1: 'a) (x2: 'a) (s: span<'a>) = MemoryExtensions.LastIndexOfAny(s, x1, x2)
-  let inline findLastIndexOfAnyOf3 (x1: 'a) (x2: 'a) (x3: 'a) (s: span<'a>) = MemoryExtensions.LastIndexOfAny(s, x1, x2, x3)
-  let inline findLastIndexOfAnyOf (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.LastIndexOfAny(s, xs)
-  let inline overlaps (other: readonlyspan<_>) (s: span<_>) = s.Overlaps(other)
-  let inline sequenceCompareTo (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.SequenceCompareTo(s, xs)
-  let inline sequenceEqual (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.SequenceEqual(s, xs)
-  let inline startsWith (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.StartsWith(s, xs)
-  let inline endsWith (xs: readonlyspan<'a>) (s: span<'a>) = MemoryExtensions.EndsWith(s, xs)
+  let inline isEmpty (s: _ span) = s.IsEmpty
+  let inline length (s: _ span) = s.Length
+  let inline item i (s: _ span) = s.[i]
+  let inline rev (s: _ span) = s.Reverse()
+  let inline take (i: int) (s: _ span) : _ span = s.Slice(0, i)
+  let inline skip (i: int) (s: _ span) : _ span = s.Slice(i)
+  let inline slice (startIndex: int) (length: int) (s: _ span) : _ span = s.Slice(startIndex, length)
+  let inline findIndex (x: 'a) (s: 'a span) = MemoryExtensions.IndexOf(s, x)
+  let inline findIndexOfSpan (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.IndexOf(s, xs)
+  let inline findIndexOfAnyOf2 x1 x2 (s: _ span) = MemoryExtensions.IndexOfAny(s, x1, x2)
+  let inline findIndexOfAnyOf3 x1 x2 x3 (s: _ span) = MemoryExtensions.IndexOfAny(s, x1, x2, x3)
+  let inline findIndexOfAnyOf (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.IndexOfAny(s, xs)
+  let inline findLastIndex (x: 'a) (s: 'a span) = MemoryExtensions.LastIndexOf(s, x)
+  let inline findLastIndexOfSpan (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.LastIndexOf(s, xs)
+  let inline findLastIndexOfAnyOf2 x1 x2 (s: _ span) = MemoryExtensions.LastIndexOfAny(s, x1, x2)
+  let inline findLastIndexOfAnyOf3 x1 x2 x3 (s: _ span) = MemoryExtensions.LastIndexOfAny(s, x1, x2, x3)
+  let inline findLastIndexOfAnyOf (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.LastIndexOfAny(s, xs)
+  let inline overlaps (other: _ readonlyspan) (s: _ span) = s.Overlaps(other)
+  let inline sequenceCompareTo (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.SequenceCompareTo(s, xs)
+  let inline sequenceEqual (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.SequenceEqual(s, xs)
+  let inline startsWith (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.StartsWith(s, xs)
+  let inline endsWith (xs: _ readonlyspan) (s: _ span) = MemoryExtensions.EndsWith(s, xs)
 
-  let inline fillWith x (s: span<_>) = s.Fill(x)
-  let inline binarySearch<'a when 'a :> IComparable<'a>> (x: 'a) (s: span<'a>) =
+  let inline fillWith x (s: _ span) = s.Fill(x)
+  let inline binarySearch<'a when 'a :> IComparable<'a>> (x: 'a) (s: 'a span) =
     s.BinarySearch(x :> IComparable<_>)
-  let inline binarySearchBy (comparer: 'a -> 'a -> int) (x: 'a) (s: span<'a>) =
+  let inline binarySearchBy (comparer: 'a -> 'a -> int) (x: 'a) (s: 'a span) =
     s.BinarySearch(x, Comparer.Create(Comparison(comparer)))
 
 module ReadOnlySpan =
   let inline ofArray (xs: _[]) = readonlyspan(xs)
-  let inline ofPtr (p: nativeptr<'a>, size) =
+  let inline ofPtr (p: 'a nativeptr, size) =
     readonlyspan<'a>(p |> NativePtr.toVoidPtr, size)
-  let inline ofMemory (mem: ReadOnlyMemory<'a>) = mem.Span
-  let inline ofString (s: string) = s.AsSpan()
+  let inline ofMemory (mem: _ readonlymemory) : _ readonlyspan = mem.Span
+  let inline ofString (s: string) : _ readonlyspan = s.AsSpan()
 
-  let inline toArray (s: readonlyspan<_>) = s.ToArray()
+  let inline toArray (s: _ readonlyspan) = s.ToArray()
   
-  let inline isEmpty (s: readonlyspan<_>) = s.IsEmpty
-  let inline length (s: readonlyspan<_>) = s.Length
-  let inline item i (s: readonlyspan<_>) = s.[i]
-  let inline take (i: int) (s: readonlyspan<_>) = s.Slice(0, i-1)
-  let inline skip (i: int) (s: readonlyspan<_>) = s.Slice(i)
-  let inline findIndex (x: 'a) (s: readonlyspan<'a>) = MemoryExtensions.IndexOf(s, x)
-  let inline findIndexOfSpan (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.IndexOf(s, xs)
-  let inline findIndexOfAnyOf2 (x1: 'a) (x2: 'a) (s: readonlyspan<'a>) = MemoryExtensions.IndexOfAny(s, x1, x2)
-  let inline findIndexOfAnyOf3 (x1: 'a) (x2: 'a) (x3: 'a) (s: readonlyspan<'a>) = MemoryExtensions.IndexOfAny(s, x1, x2, x3)
-  let inline findIndexOfAnyOf (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.IndexOfAny(s, xs)
-  let inline findLastIndex (x: 'a) (s: readonlyspan<'a>) = MemoryExtensions.LastIndexOf(s, x)
-  let inline findLastIndexOfSpan (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.LastIndexOf(s, xs)
-  let inline findLastIndexOfAnyOf2 (x1: 'a) (x2: 'a) (s: readonlyspan<'a>) = MemoryExtensions.LastIndexOfAny(s, x1, x2)
-  let inline findLastIndexOfAnyOf3 (x1: 'a) (x2: 'a) (x3: 'a) (s: readonlyspan<'a>) = MemoryExtensions.LastIndexOfAny(s, x1, x2, x3)
-  let inline findLastIndexOfAnyOf (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.LastIndexOfAny(s, xs)
-  let inline overlaps (other: readonlyspan<_>) (s: readonlyspan<_>) = s.Overlaps(other)
-  let inline sequenceCompareTo (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.SequenceCompareTo(s, xs)
-  let inline sequenceEqual (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.SequenceEqual(s, xs)
-  let inline startsWith (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.StartsWith(s, xs)
-  let inline endsWith (xs: readonlyspan<'a>) (s: readonlyspan<'a>) = MemoryExtensions.EndsWith(s, xs)
+  let inline isEmpty (s: _ readonlyspan) = s.IsEmpty
+  let inline length (s: _ readonlyspan) = s.Length
+  let inline item i (s: _ readonlyspan) = s.[i]
+  let inline take (i: int) (s: _ readonlyspan) : _ readonlyspan = s.Slice(0, i)
+  let inline skip (i: int) (s: _ readonlyspan) : _ readonlyspan = s.Slice(i)
+  let inline slice (startIndex: int) (length: int) (s: _ readonlyspan) : _ readonlyspan = s.Slice(startIndex, length)
+  let inline findIndex (x: 'a) (s: 'a readonlyspan) = MemoryExtensions.IndexOf(s, x)
+  let inline findIndexOfSpan (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.IndexOf(s, xs)
+  let inline findIndexOfAnyOf2 x1 x2 (s: _ readonlyspan) = MemoryExtensions.IndexOfAny(s, x1, x2)
+  let inline findIndexOfAnyOf3 x1 x2 x3 (s: _ readonlyspan) = MemoryExtensions.IndexOfAny(s, x1, x2, x3)
+  let inline findIndexOfAnyOf (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.IndexOfAny(s, xs)
+  let inline findLastIndex (x: 'a) (s: 'a readonlyspan) = MemoryExtensions.LastIndexOf(s, x)
+  let inline findLastIndexOfSpan (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.LastIndexOf(s, xs)
+  let inline findLastIndexOfAnyOf2 x1 x2 (s: _ readonlyspan) = MemoryExtensions.LastIndexOfAny(s, x1, x2)
+  let inline findLastIndexOfAnyOf3 x1 x2 x3 (s: _ readonlyspan) = MemoryExtensions.LastIndexOfAny(s, x1, x2, x3)
+  let inline findLastIndexOfAnyOf (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.LastIndexOfAny(s, xs)
+  let inline overlaps (other: _ readonlyspan) (s: _ readonlyspan) = s.Overlaps(other)
+  let inline sequenceCompareTo (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.SequenceCompareTo(s, xs)
+  let inline sequenceEqual (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.SequenceEqual(s, xs)
+  let inline startsWith (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.StartsWith(s, xs)
+  let inline endsWith (xs: _ readonlyspan) (s: _ readonlyspan) = MemoryExtensions.EndsWith(s, xs)
 
-  let inline binarySearch<'a when 'a :> IComparable<'a>> (x: 'a) (s: readonlyspan<'a>) =
+  let inline binarySearch<'a when 'a :> IComparable<'a>> (x: 'a) (s: 'a readonlyspan) =
     s.BinarySearch(x :> IComparable<_>)
-  let inline binarySearchBy (comparer: 'a -> 'a -> int) (x: 'a) (s: readonlyspan<'a>) =
+  let inline binarySearchBy (comparer: 'a -> 'a -> int) (x: 'a) (s: 'a readonlyspan) =
     s.BinarySearch(x, Comparer.Create(Comparison(comparer)))
 
 type Span<'a> with
-  member inline this.GetSlice(startIndex: int option, endIndex: int option) =
+  member inline this.GetSlice(startIndex: int option, endIndex: int option) : _ span =
     let s = defaultArg startIndex 0
     if endIndex.IsSome then
-      this.Slice(s, endIndex.Value - s)
+      this.Slice(s, endIndex.Value - s + 1)
     else
       this.Slice(s)
   member inline this.Item
@@ -107,13 +125,29 @@ type Span<'a> with
   member inline this.set i x = this.[i] <- x
     
 type ReadOnlySpan<'a> with
-  member inline this.GetSlice(startIndex: int option, endIndex: int option) =
+  member inline this.GetSlice(startIndex: int option, endIndex: int option) : _ readonlyspan =
     let s = defaultArg startIndex 0
     if endIndex.IsSome then
-      this.Slice(s, endIndex.Value - s)
+      this.Slice(s, endIndex.Value - s + 1)
     else
       this.Slice(s)
   member inline this.get i = this.[i]
+
+type Memory<'a> with
+  member inline this.GetSlice(startIndex: int option, endIndex: int option) : _ memory =
+    let s = defaultArg startIndex 0
+    if endIndex.IsSome then
+      this.Slice(s, endIndex.Value - s + 1)
+    else
+      this.Slice(s)
+
+type ReadOnlyMemory<'a> with
+  member inline this.GetSlice(startIndex: int option, endIndex: int option) : _ readonlymemory =
+    let s = defaultArg startIndex 0
+    if endIndex.IsSome then
+      this.Slice(s, endIndex.Value - s + 1)
+    else
+      this.Slice(s)
 
 module StringSpan =
   let inline ofString (s: string) : stringspan = s.AsSpan()
@@ -122,7 +156,7 @@ module StringSpan =
   let inline isEmpty (s: stringspan) = s.IsEmpty
   let inline length (s: stringspan) = s.Length
   let inline item i (s: stringspan) = s.[i]
-  let inline take (i: int) (s: stringspan) : stringspan = s.Slice(0, i-1)
+  let inline take (i: int) (s: stringspan) : stringspan = s.Slice(0, i)
   let inline skip (i: int) (s: stringspan) : stringspan = s.Slice(i)
   let inline findIndex (x: char) (s: stringspan) = MemoryExtensions.IndexOf(s, x)
   let inline findIndexOfSpan (xs: stringspan) (s: stringspan) = MemoryExtensions.IndexOf(s, xs)
@@ -138,7 +172,7 @@ module StringSpan =
   let inline sequenceCompareTo (other: stringspan) (s: stringspan) = MemoryExtensions.SequenceCompareTo(s, other)
   let inline sequenceEqual (other: stringspan) (s: stringspan) = MemoryExtensions.SequenceEqual(s, other)
 
-  let inline substring startIndex endIndex (s: stringspan) = s.Slice(startIndex, endIndex - startIndex)
+  let inline substring startIndex endIndex (s: stringspan) : stringspan = s.Slice(startIndex, endIndex - startIndex)
 
   [<Literal>]
   let DefaultComparison =
@@ -186,3 +220,4 @@ module StringSpan =
 
 module String =
   let inline toSpan (s: string) : stringspan = s.AsSpan()
+  let inline toMemory (s: string) : char readonlymemory = s.AsMemory()

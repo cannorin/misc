@@ -1,6 +1,5 @@
 module Coroutine
 
-[<Struct>]
 type Coroutine<'a> = Coroutine of (unit -> CoroutineState<'a>)
 and  CoroutineState<'a> =
   | Run of Coroutine<'a>

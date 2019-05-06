@@ -1,5 +1,5 @@
 (*
-The X11 License
+The MIT License
 uom.fsx - SI units of measure
 Copyright(c) 2018 cannorin
 Permission is hereby granted, free of charge, to any person obtaining a copy

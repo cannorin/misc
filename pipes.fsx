@@ -432,6 +432,11 @@ let test2 n =
     if n = 0 then p else sumN (n-1) (p >-> sum ())
   nats |> sumN n >-> take 10 |> toArray |> printfn "%A"
   
-test 5
-test2 5
+// test 5
+// test2 5
+
+let xs : Producer<_, _> = pipe { for i = 1 to 100 do yield i * i }
+let mutable ys = xs
+for i = 1 to 1000 do ys <- ys *> xs
+ys |> Pipe.toArray
 

@@ -231,3 +231,4 @@ nohup.out
 !compexp.fsx
 !SpanUtils.fs
 !pipes.fsx
+!ScientificComputing.fsx

@@ -2,6 +2,8 @@
 module MiniParsec
 #endif
 
+let [<Literal>] EOS = '\uffff'
+
 type StringSegment = {
   startIndex: int
   length: int
@@ -10,6 +12,9 @@ type StringSegment = {
   member inline this.Value = this.underlying.Substring(this.startIndex, this.length)
   member inline this.Item index =
     if index < 0 || index >= this.length then failwith "Index was out of range (Item)."
+    else this.underlying.[this.startIndex + index]
+  member inline this.GetSafe index =
+    if index < 0 || index >= this.length then EOS
     else this.underlying.[this.startIndex + index]
   member this.GetSlice (start, finish) =
     let start = defaultArg start 0
@@ -50,21 +55,14 @@ module StringSegment =
       else check (i+1) 0
     check 0 0
   let inline subString start length (seg: StringSegment) = seg.[start..length-start+1]
-  let inline take length (seg: StringSegment) = seg.[..length-1]
   let inline skip length (seg: StringSegment) =
     { underlying = seg.underlying; startIndex = seg.startIndex + length; length = seg.length - length }
-  let takeWhile (cond: char -> bool) (seg: StringSegment) =
-    let rec check i =
-      if i = seg.length || not (cond seg.[i]) then i
-      else check (i+1)
-    take (check 0) seg
-  let skipWhile (cond: char -> bool) (seg: StringSegment) =
-    let rec check i =
-      if i = seg.length || not (cond seg.[i]) then i
-      else check (i+1)
-    skip (check 0) seg
-      
-open StringSegment
+  let inline getSafe i (seg: StringSegment) = seg.GetSafe i
+  let inline skipNewline (seg: StringSegment) =
+    match seg.GetSafe 0, seg.GetSafe 1 with
+    | '\r', '\n' -> true, seg |> skip 2
+    | ('\n' | '\r'), _    -> true, seg |> skip 1
+    | _, _ -> false, seg
 
 type StringSegment with
   member inline this.StartsWith (s: string) = StringSegment.startsWith s this
@@ -83,7 +81,7 @@ type Parser<'Result, 'State> =
   ('State * StringSegment -> Result<ParseResult<'Result, 'State>, ParseError<'State>>)
 
 let inline run       (p: Parser<'a, 's>) state input = p (state, input)
-let inline runString (p: Parser<'a, 's>) state input = p (state, ofString input)
+let inline runString (p: Parser<'a, 's>) state input = p (state, StringSegment.ofString input)
 
 [<AutoOpen>]
 module Primitives =
@@ -641,31 +639,306 @@ module Primitives =
   let inline getUserState (state, s) = Ok (state, s, state)
   let inline setUserState state : Parser<unit, 'State> = fun (_, s) -> Ok ((), s, state)
   let inline updateUserState f : Parser<unit, 'State> = fun (state, s) -> Ok ((), s, f state)
+  let inline userStateSatisfies (cond: 's -> bool) : Parser<unit, 's> =
+    fun (state, s) ->
+      if cond state then Ok ((), s, state)
+      else Error (s.startIndex, lazy "userStateSatisfies failed", state)
   let inline getPosition (state, s) = Ok (s.startIndex, s, state)
+
+  [<Sealed>]
+  type ParserCombinator() =
+    member inline __.Delay(f)   = fun state -> (f ()) state
+    member inline __.Return(x)  = preturn x
+    member inline __.Bind(p, f) = p >>= f
+    member inline __.Zero()     = pzero
+    member inline __.ReturnFrom(p) = p
+    member inline __.TryWith(p, cf) =
+      fun state -> try p state with e -> (cf e) state
+    member inline __.TryFinally(p, ff) =
+      fun state -> try p state finally ff ()
+
+  let parse = ParserCombinator()
 
 open Primitives
 
+/// MiniParsec does not support fatal errors.
+/// every MiniParsec's function backtracks by default.
+module FParsecCompat =
+  let inline attempt (p: Parser<_, _>) = p
+  let inline ( >>=? ) p1 p2 = p1 >>= p2
+  let inline ( >>?  ) p1 p2 = p1 >>. p2
+  let inline ( .>>? ) p1 p2 = p1 .>> p2
+  let inline ( .>>.? ) p1 p2 = p1 .>>. p2
+  let inline ( <??> ) p msg = p <?> msg
+  let inline failFatally s = fail s
+
 [<AutoOpen>]
 module CharParsers =
-  let inline pchar c : Parser<char, _> =
+  let inline private strTake1 (seg: StringSegment) =
+    match seg.GetSafe 0, seg.GetSafe 1 with
+    | EOS, _ -> EOS, seg
+    | '\r', '\n' -> '\n', seg |> StringSegment.skip 2
+    | ('\n' | '\r'), _    -> '\n', seg |> StringSegment.skip 1
+    | c,   _ -> c, seg |> StringSegment.skip 1
+
+  let inline charReturn c v : Parser<'a, _> =
     fun (state, s) ->
-      if s |> StringSegment.isEmpty then Error (s.startIndex, lazy "EOF", state)
-      else
-        let head = s.[0]
-        if head = c then Ok (head, s |> skip 1, state)
-        else Error (s.startIndex, lazy sprintf "Expected '%c', got '%c'" c head, state)
+      match strTake1 s with
+      | EOS,  _ -> Error (s.startIndex, lazy sprintf "Expected '%c', got EOS." c, state)
+      | head, s' ->
+        if head = c then Ok (v, s', state)
+        else Error (s.startIndex, lazy sprintf "Expected '%c', got '%c'." c head, state)
+  let inline pchar c = charReturn c c
+  let inline skipChar c = charReturn c ()
+
+  let inline anyChar (state, s) =
+    match strTake1 s with
+    | EOS, _ -> Error (s.startIndex, lazy sprintf "Expected any char, got EOS.", state)
+    | c, s -> Ok (c, s, state)
+  let inline skipAnyChar (state, s) =
+    match strTake1 s with
+    | EOS, _ -> Error (s.startIndex, lazy sprintf "Expected any char, got EOS.", state)
+    | _, s -> Ok ((), s, state)
+
+  type CharSet = System.Collections.Generic.HashSet<char>
+
+  let inline satisfyL (cond: char -> bool) (label: Lazy<string>) : Parser<char, _> =
+    fun (state, s) ->
+      match strTake1 s with
+      | EOS, _ -> Error (s.startIndex, lazy sprintf "Expected %s, but got EOS." label.Value, state)
+      | c, s' ->
+        if cond c then Ok (c, s', state)
+        else
+          Error (s.startIndex, lazy sprintf "Expected %s, but got %c." label.Value c, state)
+  let inline skipSatisfyL cond label : Parser<unit, _> = satisfyL cond label >>% ()
+
+  let inline satisfy cond : Parser<char, _> = satisfyL cond (lazy "a char with condition")
+  let inline skipSatisfy cond : Parser<unit, _> = skipSatisfyL cond (lazy "a char with condition")
 
   let inline anyOf (chars: char seq) : Parser<char, _> =
+    let set = CharSet(chars)
+    satisfyL set.Contains (lazy sprintf "one of %A" (Seq.toList chars))
+  let inline skipAnyOf (chars: char seq) : Parser<unit, _> =
+    let set = CharSet(chars)
+    skipSatisfyL set.Contains (lazy sprintf "one of %A" (Seq.toList chars))
+  let inline noneOf (chars: char seq) : Parser<char, _> =
+    let set = CharSet(chars)
+    satisfyL (set.Contains >> not) (lazy sprintf "one of %A" (Seq.toList chars))
+  let inline skipNoneOf (chars: char seq) : Parser<unit, _> =
+    let set = CharSet(chars)
+    skipSatisfyL (set.Contains >> not) (lazy sprintf "one of %A" (Seq.toList chars))
+
+  open System
+
+  let inline asciiLower (state, s) = satisfyL (fun c -> 'a' <= c && c <= 'z') (lazy "[a-z]") (state, s)
+  let inline asciiUpper (state, s) = satisfyL (fun c -> 'A' <= c && c <= 'Z') (lazy "[A-Z]") (state, s)
+  let inline asciiLetter (state, s) = satisfyL (fun c -> ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z')) (lazy "[a-zA-Z]") (state, s)
+  let inline lower (state, s) = satisfyL Char.IsLower (lazy "Lowercase Letter") (state, s)
+  let inline upper (state, s) = satisfyL Char.IsUpper (lazy "Uppercase Letter") (state, s)
+  let inline letter (state, s) = satisfyL Char.IsLetter (lazy "Letter") (state, s)
+  let inline digit (state, s) = satisfyL Char.IsDigit (lazy "[0-9]") (state, s)
+  let inline hex (state, s) = satisfyL (fun c -> Char.IsDigit c || ('A' <= c && c <= 'F') || ('a' <= c && c <= 'f')) (lazy "[0-9a-fA-F]") (state, s)
+  let inline octal (state, s) = satisfyL (fun c -> '0' <= c && c <= '7') (lazy "[0-7]") (state, s)
+  let inline tab (state, s) = pchar '\t' (state, s)
+
+  let inline newlineReturn v : Parser<'a, _> =
     fun (state, s) ->
-      if s |> StringSegment.isEmpty then Error (s.startIndex, lazy "EOF", state)
-      else
-        let head = s.[0]
-        if chars |> Seq.contains head then
-          Ok (head, s |> skip 1, state)
-        else
-          Error (s.startIndex, lazy sprintf "Expected one of %A, but got %c." (Seq.toList chars) head, state)
+      let (b, s) = StringSegment.skipNewline s
+      if b then Ok (v, s, state) else Error (s.startIndex, lazy sprintf "Expected newline.", state)
+  let inline newline (state, s) = newlineReturn '\n' (state, s)
+  let inline skipNewline (state, s) = newlineReturn () (state, s)
+
+  let inline spaces (state, s) =
+    let rec go (s: StringSegment) =
+      match strTake1 s with
+      | ('\n' | '\t' | ' '), s -> go s
+      | _ -> Ok ((), state, s)
+    go s
+  let inline spaces1 (state, s) =
+    match strTake1 s with
+    | ('\n' | '\t' | ' '), s ->
+      let rec go (s: StringSegment) =
+        match strTake1 s with
+        | ('\n' | '\t' | ' '), s -> go s
+        | _ -> Ok ((), state, s)
+      go s
+    | _ -> Error (s.startIndex, lazy "Expected one or more spaces", state)
+  let inline eof (state, s) =
+    match strTake1 s with
+    | EOS, _ -> Ok ((), state, s)
+    | _ -> Error (s.startIndex, lazy "Expected EOF", state)
 
 open CharParsers
+
+module Extensions =
+  module Convert =
+    let inline private foldi folder state xs =
+      Seq.fold (fun (i, state) x -> (i + 1, folder i state x)) (0, state) xs |> snd
+    let inline hexsToInt (hexs: #seq<char>) =
+      let len = Seq.length hexs - 1
+      hexs |> foldi (fun i sum x ->
+        let n =
+          let n = int x - int '0'
+          if n < 10 then n
+          else if n < 23 then n - 7
+          else n - 44
+        sum + n * pown 16 (len - i)) 0
+    let inline digitsToInt (digits: #seq<char>) =
+      let len = Seq.length digits - 1
+      digits |> foldi (fun i sum x ->
+        sum + (int x - int '0') * pown 10 (len - i)) 0
+
+  /// Variant of `<|>` but accept different types of parsers and returns `Choice<'a, 'b>`.
+  let inline (<||>) a b = (a |>> Choice1Of2) <|> (b |>> Choice2Of2)
+
+  /// short hand for `skipString s`
+  //let inline syn s = skipString s
+
+  /// short hand for `skipChar c `
+  let inline cyn c = skipChar c
+
+  /// short hand for `x .>>? spaces`
+  let inline ws x = x .>>? spaces
+
+  /// Applies the `parser` for `n` times.
+  let rec times n parser =
+    if n <= 0 then invalidArg "n" "n must be positive"
+    else if n = 1 then parser |>> List.singleton
+    else
+      parser .>>. (times (n-1) parser) |>> fun (h, t) -> h :: t
+
+  (*
+  /// Given a sequence of `(key, value)`, parses the string `key`
+  /// and returns the corresponding `value`.
+  let inline pdict (d: #seq<_*_>) =
+    dict d |> Seq.map (fun kv -> pstring kv.Key >>% kv.Value)
+           |> choice
+
+  /// Optimized version of `pdict d <?> descr`.
+  let inline pdictL (d: #seq<_*_>) descr =
+    dict d |> Seq.map (fun kv -> pstring kv.Key >>% kv.Value)
+           |> choiceL <| descr
+
+  /// String with escaped characters. Should be used along with `between`.
+  let inline escapedString (escapedChars: #seq<char>) =
+    let controls =
+      pdictL [
+        "\\b", '\b'; "\\t", '\t'; "\\n", '\n';
+        "\\v", '\u000B'; "\\f", '\u000C'; "\\r", '\r'; "\\\\", '\\'
+      ] "control characters"
+    let unicode16bit =
+      syn "\\u" >>? times 4 hex |>> (Convert.hexsToInt >> char)
+    let unicode32bit =
+      syn "\\U" >>? times 8 hex |>> (Convert.hexsToInt >> char)
+    let customEscapedChars =
+      let d = escapedChars |> Seq.map (fun c -> sprintf "\\%c" c, c)
+      pdict d
+    
+    let escape = choice [controls; unicode16bit; unicode32bit; customEscapedChars]
+    let nonEscape = noneOf (sprintf "\\\b\t\n\u000B\u000C\r%s" (System.String.Concat escapedChars))
+    let character = nonEscape <|> escape
+    many character |>> System.String.Concat
+  *)
+
+  /// Defines a recursive rule.
+  let inline recursive (definition: (Parser<'a, _> -> Parser<'a, _>)) =
+    let p, pr = createParserForwardedToRef()
+    pr := definition p
+    p
+
+/// ISO8601-compliant Date/Time Parser.
+/// See https://tools.ietf.org/html/iso8601#section-5.6 for details.
+module ISO8601DateTime =
+  open System
+  open Extensions
+  open Extensions.Convert
+
+  // date-fullyear   = 4DIGIT
+  // date-month      = 2DIGIT
+  // date-mday       = 2DIGIT
+  // full-date       = date-fullyear "-" date-month "-" date-mday
+  let private iso8601_full_date =
+    times 4 digit .>>. times 2 (cyn '-' >>. times 2 digit)
+    <?> "ISO8601 Full Date"
+    |>> function 
+      | (year, [month; day]) ->
+        digitsToInt year, digitsToInt month, digitsToInt day
+      | _ -> failwith "impossible"
+
+  // time-hour       = 2DIGIT  ; 00-23
+  // time-minute     = 2DIGIT  ; 00-59
+  // time-second     = 2DIGIT  ; 00-5
+  // time-secfrac    = "." 1*DIGIT
+  // partial-time    = time-hour ":" time-minute ":" time-second [time-secfrac]
+  let private iso8601_partial_time =
+    times 2 digit .>>. times 2 (cyn ':' >>. times 2 digit)
+    .>>. opt (cyn '.' >>. many1 digit)
+    <?> "ISO8601 Partial Time"
+    |>> function
+      | ((hour, [minute; second]), secfrac) ->
+        digitsToInt hour, digitsToInt minute, digitsToInt second,
+        secfrac
+        |> Option.map (fun xs ->
+          digitsToInt <|
+            // we only respect up to the top 3 bits (milliseconds)
+            if List.length xs > 3 then List.take 3 xs else xs)
+        |> Option.defaultValue 0
+      | _ -> failwith "impossible"
+
+  // time-numoffset  = ("+" / "-") time-hour ":" time-minute
+  // time-offset     = "Z" / time-numoffset
+  // NOTE: Per [ABNF] and ISO8601, the "T" and "Z" characters in this
+  //  syntax may alternatively be lower case "t" or "z" respectively.
+  let private iso8601_offset =
+    let sign = (cyn '+' >>% true) <|> (cyn '-' >>% false)
+    let numoffset =
+      sign .>>. times 2 digit .>> cyn ':' .>>. times 2 digit
+      |>> fun ((sign, minute), second) -> sign, digitsToInt minute, digitsToInt second
+    ((anyOf "zZ" >>% ()) <||> numoffset) <?> "ISO8601 Time Offset"
+
+  // full-time       = partial-time time-offset
+  let private iso8601_full_time =
+    iso8601_partial_time .>>. iso8601_offset
+    <?> "ISO8601 Full Time"
+    |>> fun ((h,m,s,f),o) -> h,m,s,f,o
+
+  // date-time       = full-date "T" full-time
+  // NOTE: Per [ABNF] and ISO8601, the "T" and "Z" characters in this
+  //  syntax may alternatively be lower case "t" or "z" respectively.
+  // NOTE: ISO 8601 defines date and time separated by "T".
+  //  Applications using this syntax may choose, for the sake of
+  //  readability, to specify a full-date and full-time separated by
+  //  (say) a space character.
+  let private iso8601_date_time =
+    iso8601_full_date .>> (anyOf "tT " >>% ()) .>>. iso8601_full_time
+    <?> "ISO8601 Date Time"
+    |>> fun ((Y,M,D), (h,m,s,f,o)) -> Y,M,D,h,m,s,f,o
+  
+  /// ISO8601-compliant partial-time parser.
+  let ppartialtime : Parser<_, unit> =
+    iso8601_partial_time |>> fun (h,m,s,f) -> DateTime(0,0,0,h,m,s,f,DateTimeKind.Local)
+  
+  /// ISO8601-compliant full-time parser.
+  let pfulltime : Parser<_, unit> =
+    iso8601_full_time |>> function
+      | (h,m,s,f,Choice1Of2()) ->
+        DateTimeOffset(0,0,0,h,m,s,f,TimeSpan.Zero)
+      | (h,m,s,f,Choice2Of2(sign, oh, om)) ->
+        let inline sign x = if sign then x else -x
+        DateTimeOffset(0,0,0,h,m,s,f,TimeSpan(sign oh, sign om, 0))
+
+  /// ISO8601-compliant full-date parser.
+  let pfulldate : Parser<_, unit> =
+    iso8601_full_date |>> fun (y,m,d) -> DateTime(y,m,d,0,0,0,DateTimeKind.Local)
+
+  /// ISO8601-compliant datetime parser.
+  let pdatetime : Parser<_, unit> =
+    iso8601_date_time |>> function
+      | (Y,M,D,h,m,s,f,Choice1Of2()) ->
+        DateTimeOffset(Y,M,D,h,m,s,f,TimeSpan.Zero)
+      | (Y,M,D,h,m,s,f,Choice2Of2(sign, oh, om)) ->
+        let inline sign x = if sign then x else -x
+        DateTimeOffset(Y,M,D,h,m,s,f,TimeSpan(sign oh, sign om, 0))
 
 let num: Parser<int, unit> = anyOf "0123456789" |>> fun c -> int c - int '0'
 

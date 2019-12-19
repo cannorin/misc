@@ -16,7 +16,7 @@ type StringSegment = {
   member inline this.GetSafe index =
     if index < 0 || index >= this.length then EOS
     else this.underlying.[this.startIndex + index]
-  member this.GetSlice (start, finish) =
+  member inline this.GetSlice (start, finish) =
     let start = defaultArg start 0
     let finish = defaultArg finish (this.length - 1)
     let inline check x = x >= 0 && x < this.length
@@ -25,7 +25,11 @@ type StringSegment = {
     else failwith "Index was out of range (GetSlice)."
 
 module StringSegment =
-  let inline ofString (str: string) = { underlying = str; startIndex = 0; length = str.Length }
+  let inline private normalize (str: string) =
+    str.Replace("\r\n", "\n").Replace("\r", "\n")
+  let inline ofString (str: string) =
+    let str = normalize str
+    { underlying = str; startIndex = 0; length = str.Length }
   let inline toString (seg: StringSegment) = seg.Value
   let inline isEmpty (seg: StringSegment) = seg.length <= 0
   let startsWith (s: string) (seg: StringSegment) =
@@ -58,11 +62,6 @@ module StringSegment =
   let inline skip length (seg: StringSegment) =
     { underlying = seg.underlying; startIndex = seg.startIndex + length; length = seg.length - length }
   let inline getSafe i (seg: StringSegment) = seg.GetSafe i
-  let inline skipNewline (seg: StringSegment) =
-    match seg.GetSafe 0, seg.GetSafe 1 with
-    | '\r', '\n' -> true, seg |> skip 2
-    | ('\n' | '\r'), _    -> true, seg |> skip 1
-    | _, _ -> false, seg
 
 type StringSegment with
   member inline this.StartsWith (s: string) = StringSegment.startsWith s this
@@ -265,16 +264,17 @@ module Primitives =
     pipe5 p1 p2 p3 p4 p5 (fun r1 r2 r3 r4 r5 -> r1,r2,r3,r4,r5)
 
   let inline parray (len: int) (p: Parser<'a, 's>) : Parser<'a[], 's> =
-    let mutable result = Array.zeroCreate len
-    let rec go i (state, s) =
-      if i = len then Ok (result, s, state)
-      else
-        match run p state s with
-        | Error e -> Error e
-        | Ok (r, s, state) ->
-          result.[i] <- r
-          go (i+1) (state, s)
-    go 0
+    fun (state, s) ->
+      let result = Array.zeroCreate len
+      let rec go i (state, s) =
+        if i = len then Ok (result, s, state)
+        else
+          match run p state s with
+          | Error e -> Error e
+          | Ok (r, s, state) ->
+            result.[i] <- r
+            go (i+1) (state, s)
+      go 0 (state, s)
 
   let inline skipArray (len: int) (p: Parser<'a, 's>) : Parser<unit, 's> =
     let rec go i (state, s) =
@@ -674,42 +674,37 @@ module FParsecCompat =
 
 [<AutoOpen>]
 module CharParsers =
-  let inline private strTake1 (seg: StringSegment) =
-    match seg.GetSafe 0, seg.GetSafe 1 with
-    | EOS, _ -> EOS, seg
-    | '\r', '\n' -> '\n', seg |> StringSegment.skip 2
-    | ('\n' | '\r'), _    -> '\n', seg |> StringSegment.skip 1
-    | c,   _ -> c, seg |> StringSegment.skip 1
+  open StringSegment
 
   let inline charReturn c v : Parser<'a, _> =
     fun (state, s) ->
-      match strTake1 s with
-      | EOS,  _ -> Error (s.startIndex, lazy sprintf "Expected '%c', got EOS." c, state)
-      | head, s' ->
-        if head = c then Ok (v, s', state)
+      match getSafe 0 s with
+      | EOS -> Error (s.startIndex, lazy sprintf "Expected '%c', got EOS." c, state)
+      | head ->
+        if head = c then Ok (v, s |> skip 1, state)
         else Error (s.startIndex, lazy sprintf "Expected '%c', got '%c'." c head, state)
   let inline pchar c = charReturn c c
   let inline skipChar c = charReturn c ()
 
   let inline anyChar (state, s) =
-    match strTake1 s with
-    | EOS, _ -> Error (s.startIndex, lazy sprintf "Expected any char, got EOS.", state)
-    | c, s -> Ok (c, s, state)
+    match getSafe 0 s with
+    | EOS -> Error (s.startIndex, lazy sprintf "Expected any char, got EOS.", state)
+    | c   -> Ok (c, s |> skip 1, state)
   let inline skipAnyChar (state, s) =
-    match strTake1 s with
-    | EOS, _ -> Error (s.startIndex, lazy sprintf "Expected any char, got EOS.", state)
-    | _, s -> Ok ((), s, state)
+    match getSafe 0 s with
+    | EOS -> Error (s.startIndex, lazy sprintf "Expected any char, got EOS.", state)
+    | _   -> Ok ((), s |> skip 1, state)
 
   type CharSet = System.Collections.Generic.HashSet<char>
 
   let inline satisfyL (cond: char -> bool) (label: Lazy<string>) : Parser<char, _> =
     fun (state, s) ->
-      match strTake1 s with
-      | EOS, _ -> Error (s.startIndex, lazy sprintf "Expected %s, but got EOS." label.Value, state)
-      | c, s' ->
-        if cond c then Ok (c, s', state)
+      match getSafe 0 s with
+      | EOS -> Error (s.startIndex, lazy sprintf "Expected %s, got EOS." label.Value, state)
+      | c ->
+        if cond c then Ok (c, s |> skip 1, state)
         else
-          Error (s.startIndex, lazy sprintf "Expected %s, but got %c." label.Value c, state)
+          Error (s.startIndex, lazy sprintf "Expected %s, got %c." label.Value c, state)
   let inline skipSatisfyL cond label : Parser<unit, _> = satisfyL cond label >>% ()
 
   let inline satisfy cond : Parser<char, _> = satisfyL cond (lazy "a char with condition")
@@ -743,30 +738,40 @@ module CharParsers =
 
   let inline newlineReturn v : Parser<'a, _> =
     fun (state, s) ->
-      let (b, s) = StringSegment.skipNewline s
-      if b then Ok (v, s, state) else Error (s.startIndex, lazy sprintf "Expected newline.", state)
+      match getSafe 0 s with
+      | '\n' -> Ok (v, s |> skip 1, state)
+      | _ -> Error (s.startIndex, lazy sprintf "Expected newline.", state)
   let inline newline (state, s) = newlineReturn '\n' (state, s)
   let inline skipNewline (state, s) = newlineReturn () (state, s)
 
   let inline spaces (state, s) =
     let rec go (s: StringSegment) =
-      match strTake1 s with
-      | ('\n' | '\t' | ' '), s -> go s
+      match getSafe 0 s with
+      | '\n' | '\t' | ' ' -> go (s |> skip 1)
       | _ -> Ok ((), state, s)
     go s
   let inline spaces1 (state, s) =
-    match strTake1 s with
-    | ('\n' | '\t' | ' '), s ->
+    match getSafe 0 s with
+    | '\n' | '\t' | ' ' ->
       let rec go (s: StringSegment) =
-        match strTake1 s with
-        | ('\n' | '\t' | ' '), s -> go s
+        match getSafe 0 s with
+        | '\n' | '\t' | ' ' -> go (s |> skip 1)
         | _ -> Ok ((), state, s)
-      go s
+      go (s |> skip 1)
     | _ -> Error (s.startIndex, lazy "Expected one or more spaces", state)
   let inline eof (state, s) =
-    match strTake1 s with
-    | EOS, _ -> Ok ((), state, s)
+    match getSafe 0 s with
+    | EOS -> Ok ((), state, s)
     | _ -> Error (s.startIndex, lazy "Expected EOF", state)
+
+  let inline stringReturn (str: string) v : Parser<'a, 's> =
+    fun (state, s) ->
+      if s |> startsWith str then
+        Ok (v, s |> skip str.Length, state)
+      else
+        Error (s.startIndex, lazy "Expected '%s'", state)
+  let inline pstring str : Parser<string, 's> = stringReturn str str
+  let inline skipString str : Parser<unit, 's> = stringReturn str ()
 
 open CharParsers
 
@@ -792,7 +797,7 @@ module Extensions =
   let inline (<||>) a b = (a |>> Choice1Of2) <|> (b |>> Choice2Of2)
 
   /// short hand for `skipString s`
-  //let inline syn s = skipString s
+  let inline syn s = skipString s
 
   /// short hand for `skipChar c `
   let inline cyn c = skipChar c
@@ -800,24 +805,14 @@ module Extensions =
   /// short hand for `x .>>? spaces`
   let inline ws x = x .>>? spaces
 
-  /// Applies the `parser` for `n` times.
-  let rec times n parser =
-    if n <= 0 then invalidArg "n" "n must be positive"
-    else if n = 1 then parser |>> List.singleton
-    else
-      parser .>>. (times (n-1) parser) |>> fun (h, t) -> h :: t
-
-  (*
   /// Given a sequence of `(key, value)`, parses the string `key`
   /// and returns the corresponding `value`.
-  let inline pdict (d: #seq<_*_>) =
-    dict d |> Seq.map (fun kv -> pstring kv.Key >>% kv.Value)
-           |> choice
+  let inline pdict (d: list<_*_>) =
+    d |> List.map (fun (k, v) -> pstring k >>% v) |> choice
 
   /// Optimized version of `pdict d <?> descr`.
-  let inline pdictL (d: #seq<_*_>) descr =
-    dict d |> Seq.map (fun kv -> pstring kv.Key >>% kv.Value)
-           |> choiceL <| descr
+  let inline pdictL (d: list<_*_>) descr =
+    d |> List.map (fun (k, v) -> pstring k >>% v) |> choiceL <| descr
 
   /// String with escaped characters. Should be used along with `between`.
   let inline escapedString (escapedChars: #seq<char>) =
@@ -827,18 +822,17 @@ module Extensions =
         "\\v", '\u000B'; "\\f", '\u000C'; "\\r", '\r'; "\\\\", '\\'
       ] "control characters"
     let unicode16bit =
-      syn "\\u" >>? times 4 hex |>> (Convert.hexsToInt >> char)
+      syn "\\u" >>. parray 4 hex |>> (Convert.hexsToInt >> char)
     let unicode32bit =
-      syn "\\U" >>? times 8 hex |>> (Convert.hexsToInt >> char)
+      syn "\\U" >>. parray 8 hex |>> (Convert.hexsToInt >> char)
     let customEscapedChars =
-      let d = escapedChars |> Seq.map (fun c -> sprintf "\\%c" c, c)
+      let d = escapedChars |> Seq.map (fun c -> sprintf "\\%c" c, c) |> Seq.toList
       pdict d
     
     let escape = choice [controls; unicode16bit; unicode32bit; customEscapedChars]
     let nonEscape = noneOf (sprintf "\\\b\t\n\u000B\u000C\r%s" (System.String.Concat escapedChars))
     let character = nonEscape <|> escape
     many character |>> System.String.Concat
-  *)
 
   /// Defines a recursive rule.
   let inline recursive (definition: (Parser<'a, _> -> Parser<'a, _>)) =
@@ -858,10 +852,10 @@ module ISO8601DateTime =
   // date-mday       = 2DIGIT
   // full-date       = date-fullyear "-" date-month "-" date-mday
   let private iso8601_full_date =
-    times 4 digit .>>. times 2 (cyn '-' >>. times 2 digit)
+    parray 4 digit .>>. parray 2 (cyn '-' >>. parray 2 digit)
     <?> "ISO8601 Full Date"
     |>> function 
-      | (year, [month; day]) ->
+      | (year, [|month; day|]) ->
         digitsToInt year, digitsToInt month, digitsToInt day
       | _ -> failwith "impossible"
 
@@ -871,11 +865,11 @@ module ISO8601DateTime =
   // time-secfrac    = "." 1*DIGIT
   // partial-time    = time-hour ":" time-minute ":" time-second [time-secfrac]
   let private iso8601_partial_time =
-    times 2 digit .>>. times 2 (cyn ':' >>. times 2 digit)
+    parray 2 digit .>>. parray 2 (cyn ':' >>. parray 2 digit)
     .>>. opt (cyn '.' >>. many1 digit)
     <?> "ISO8601 Partial Time"
     |>> function
-      | ((hour, [minute; second]), secfrac) ->
+      | ((hour, [|minute; second|]), secfrac) ->
         digitsToInt hour, digitsToInt minute, digitsToInt second,
         secfrac
         |> Option.map (fun xs ->
@@ -892,7 +886,7 @@ module ISO8601DateTime =
   let private iso8601_offset =
     let sign = (cyn '+' >>% true) <|> (cyn '-' >>% false)
     let numoffset =
-      sign .>>. times 2 digit .>> cyn ':' .>>. times 2 digit
+      sign .>>. parray 2 digit .>> cyn ':' .>>. parray 2 digit
       |>> fun ((sign, minute), second) -> sign, digitsToInt minute, digitsToInt second
     ((anyOf "zZ" >>% ()) <||> numoffset) <?> "ISO8601 Time Offset"
 
@@ -940,6 +934,9 @@ module ISO8601DateTime =
         let inline sign x = if sign then x else -x
         DateTimeOffset(Y,M,D,h,m,s,f,TimeSpan(sign oh, sign om, 0))
 
-let num: Parser<int, unit> = anyOf "0123456789" |>> fun c -> int c - int '0'
+let f x = runString ISO8601DateTime.pdatetime () x
 
-let p = chainl1 (num |>> fun x -> [x]) (pchar '+' >>% (@))
+let test() =
+  match f "2019-12-10T14:57:13+09:00" with
+  | Ok (date, _, _) -> printfn "success: %A" date
+  | Error e -> printfn "error: %A" e

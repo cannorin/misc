@@ -232,3 +232,4 @@ nohup.out
 !SpanUtils.fs
 !pipes.fsx
 !ScientificComputing.fsx
+!parsec.fsx
